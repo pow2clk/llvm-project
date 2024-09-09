@@ -4252,6 +4252,26 @@ public:
             getTypeClass());
   }
 
+
+  int getPointAccessorIdx(StringRef Accessor) const {
+    if (Accessor[0] != '_')
+      return -1;
+    unsigned Offset = 0;
+    if (Accessor[1] == 'm')
+      Offset = 1;
+    if ((unsigned)Accessor[Offset + 1] < '1' - Offset ||
+	(unsigned)Accessor[Offset + 1] > '4' - Offset ||
+	(unsigned)Accessor[Offset + 2] < '1' - Offset ||
+	(unsigned)Accessor[Offset + 2] > '4' - Offset)
+      return -1;
+    unsigned RowIdx = Accessor[Offset+1] - '1' - Offset;
+    unsigned ColIdx = Accessor[Offset+1] - '1' - Offset;
+    // probably want to break this out so we can distinguish errors
+    if (RowIdx > NumRows || ColIdx > NumColumns)
+      return -1;
+    return RowIdx*NumColumns + RowIdx;
+  }
+
   static void Profile(llvm::FoldingSetNodeID &ID, QualType ElementType,
                       unsigned NumRows, unsigned NumColumns,
                       TypeClass TypeClass) {
@@ -4295,6 +4315,7 @@ public:
   static void Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Context,
                       QualType ElementType, Expr *RowExpr, Expr *ColumnExpr);
 };
+
 
 /// FunctionType - C99 6.7.5.3 - Function Declarators.  This is the common base
 /// class of FunctionNoProtoType and FunctionProtoType.

@@ -358,6 +358,14 @@ IsRGBA(char c) {
   }
 }
 
+/// Determine whether input string is from _m component set.
+static bool
+isZeroBased(StringRef Accessor) {
+  if (Accessor[0] != '_')
+      return false;
+  return Accessor[1] == 'm';
+}
+
 // OpenCL v1.1, s6.1.7
 // The component swizzle length must be in accordance with the acceptable
 // vector sizes.
@@ -490,6 +498,76 @@ CheckExtVectorComponent(Sema &S, QualType baseType, ExprValueKind &VK,
     VK = VK_PRValue;
 
   QualType VT = S.Context.getExtVectorType(vecType->getElementType(), CompSize);
+  // Now look up the TypeDefDecl from the vector type. Without this,
+  // diagostics look bad. We want extended vector types to appear built-in.
+  for (Sema::ExtVectorDeclsType::iterator
+         I = S.ExtVectorDecls.begin(S.getExternalSource()),
+         E = S.ExtVectorDecls.end();
+       I != E; ++I) {
+    if ((*I)->getUnderlyingType() == VT)
+      return S.Context.getTypedefType(*I);
+  }
+
+  return VT; // should never get here (a typedef type should always be found).
+}
+
+/// Check an hlsl matrix component access expression.
+///
+/// VK should be set in advance to the value kind of the base
+/// expression.
+static QualType
+CheckHLSLMatrixComponent(Sema &S, QualType baseType, ExprValueKind &VK,
+			 SourceLocation OpLoc, const IdentifierInfo *CompName,
+			 SourceLocation CompLoc) {
+  const ConstantMatrixType *mtxType = baseType->getAs<ConstantMatrixType>();
+
+  const char *compStr = CompName->getNameStart();
+
+  bool HasRepeated = false;
+  bool HasIndex[16] = {};
+
+  int Idx;
+
+  unsigned CompSize = 0;
+  if ((Idx = mtxType->getPointAccessorIdx(compStr)) != -1) {
+    bool HasZeroBased = isZeroBased(compStr);
+    do {
+      // Ensure that zero and one-based accessors don't intermingle.
+      if (HasZeroBased != isZeroBased(compStr))
+        break;
+      if (HasIndex[Idx]) HasRepeated = true;
+      HasIndex[Idx] = true;
+      if (HasZeroBased)
+	compStr+=3;
+      else
+	compStr+=2;
+      CompSize++;
+    } while (*compStr && (Idx = mtxType->getPointAccessorIdx(compStr)) != -1);
+  }
+
+  if (*compStr) {
+    // We didn't get to the end of the string. This means the component names
+    // didn't come from the same set *or* we encountered an illegal name.
+    if (Idx == -1)
+      S.Diag(OpLoc, diag::err_ext_vector_component_exceeds_length)
+	<< baseType << SourceRange(CompLoc);
+    else
+      S.Diag(OpLoc, diag::err_ext_vector_component_name_illegal)
+	<< StringRef(compStr, 1) << SourceRange(CompLoc);
+    return QualType();
+  }
+
+  // Ensure no component accessor exceeds the width of the vector type it
+  // operates on.
+  compStr = CompName->getNameStart();
+
+  if (CompSize == 1)
+    return mtxType->getElementType();
+
+  if (HasRepeated)
+    VK = VK_PRValue;//huh?
+
+  QualType VT = S.Context.getExtVectorType(mtxType->getElementType(), CompSize);
   // Now look up the TypeDefDecl from the vector type. Without this,
   // diagostics look bad. We want extended vector types to appear built-in.
   for (Sema::ExtVectorDeclsType::iterator
@@ -1670,6 +1748,23 @@ static ExprResult LookupMemberExpr(Sema &S, LookupResult &R,
     ExprValueKind VK = (IsArrow ? VK_LValue : BaseExpr.get()->getValueKind());
     QualType ret = CheckExtVectorComponent(S, BaseType, VK, OpLoc,
                                            Member, MemberLoc);
+    if (ret.isNull())
+      return ExprError();
+    Qualifiers BaseQ =
+        S.Context.getCanonicalType(BaseExpr.get()->getType()).getQualifiers();
+    ret = S.Context.getQualifiedType(ret, BaseQ);
+
+    return new (S.Context)
+        ExtVectorElementExpr(ret, VK, BaseExpr.get(), *Member, MemberLoc);
+  }
+
+  // Handle 'field access' to HLSL Matrices, such as 'M._41' or 'M._m30'.
+  if (BaseType->isConstantMatrixType() && S.getLangOpts().HLSL) {
+    IdentifierInfo *Member = MemberName.getAsIdentifierInfo();
+    assert(!IsArrow && "arrows shouldn't appear on HLSL-specific types");
+    ExprValueKind VK = BaseExpr.get()->getValueKind();
+    QualType ret = CheckHLSLMatrixComponent(S, BaseType, VK, OpLoc,
+					    Member, MemberLoc);
     if (ret.isNull())
       return ExprError();
     Qualifiers BaseQ =
