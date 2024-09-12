@@ -14593,7 +14593,9 @@ public:
   QualType BuildExtVectorType(QualType T, Expr *ArraySize,
                               SourceLocation AttrLoc);
   QualType BuildMatrixType(QualType T, Expr *NumRows, Expr *NumColumns,
-                           SourceLocation AttrLoc);
+			   SourceLocation AttrLoc);
+  bool isValidMatrixElement(QualType ElementType);
+  bool areValidMatrixDimensions(Expr *NumRows, Expr* NumCols, unsigned &Rows, unsigned &Cols);
 
   QualType BuildCountAttributedArrayOrPointerType(QualType WrappedTy,
                                                   Expr *CountExpr,

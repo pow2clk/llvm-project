@@ -2452,7 +2452,7 @@ QualType Sema::BuildMatrixType(QualType ElementTy, Expr *NumRows, Expr *NumCols,
 
   // Check element type, if it is not dependent.
   if (!ElementTy->isDependentType() &&
-      !MatrixType::isValidElementType(ElementTy)) {
+      !isValidMatrixElement(ElementTy)) {
     Diag(AttrLoc, diag::err_attribute_invalid_matrix_type) << ElementTy;
     return QualType();
   }
@@ -2467,58 +2467,81 @@ QualType Sema::BuildMatrixType(QualType ElementTy, Expr *NumRows, Expr *NumCols,
   std::optional<llvm::APSInt> ValueColumns =
       NumCols->getIntegerConstantExpr(Context);
 
-  auto const RowRange = NumRows->getSourceRange();
-  auto const ColRange = NumCols->getSourceRange();
-
-  // Both are row and column expressions are invalid.
+  // Both row and column expressions are invalid.
   if (!ValueRows && !ValueColumns) {
     Diag(AttrLoc, diag::err_attribute_argument_type)
-        << "matrix_type" << AANT_ArgumentIntegerConstant << RowRange
-        << ColRange;
+      // ArgumentIntegerConstant is always an enum always 1
+        << "matrix_type" << AANT_ArgumentIntegerConstant << NumRows->getSourceRange()
+        << NumCols->getSourceRange();
     return QualType();
   }
 
   // Only the row expression is invalid.
   if (!ValueRows) {
     Diag(AttrLoc, diag::err_attribute_argument_type)
-        << "matrix_type" << AANT_ArgumentIntegerConstant << RowRange;
+        << "matrix_type" << AANT_ArgumentIntegerConstant << NumRows->getSourceRange();
     return QualType();
   }
 
   // Only the column expression is invalid.
   if (!ValueColumns) {
     Diag(AttrLoc, diag::err_attribute_argument_type)
-        << "matrix_type" << AANT_ArgumentIntegerConstant << ColRange;
+        << "matrix_type" << AANT_ArgumentIntegerConstant << NumCols->getSourceRange();
     return QualType();
   }
 
   // Check the matrix dimensions.
+  unsigned MatrixRows = 0;
+  unsigned MatrixColumns = 0;
+  if (!areValidMatrixDimensions(NumRows, NumCols, MatrixRows, MatrixColumns))
+    return QualType();
+  return Context.getConstantMatrixType(ElementTy, MatrixRows, MatrixColumns);
+}
+
+/// Valid elements types are the following:
+/// * an integer type (as in C23 6.2.5p22), but excluding enumerated types
+/// * boolean types are allowed for HLSL only.
+/// * the standard floating types float or double
+/// * a half-precision floating point type, if one is supported on the target
+bool Sema::isValidMatrixElement(QualType ElementType) {
+  return ElementType->isDependentType() ||
+    (ElementType->isRealType() && !ElementType->isEnumeralType() &&
+     (!ElementType->isBooleanType() || getLangOpts().HLSL));
+}
+
+
+bool Sema::areValidMatrixDimensions(Expr *RowExpr, Expr *ColExpr,
+				    unsigned &Rows, unsigned &Cols) {
+  std::optional<llvm::APSInt> ValueRows =
+      RowExpr->getIntegerConstantExpr(Context);
+  std::optional<llvm::APSInt> ValueColumns =
+      ColExpr->getIntegerConstantExpr(Context);
+
   unsigned MatrixRows = static_cast<unsigned>(ValueRows->getZExtValue());
   unsigned MatrixColumns = static_cast<unsigned>(ValueColumns->getZExtValue());
-  if (MatrixRows == 0 && MatrixColumns == 0) {
-    Diag(AttrLoc, diag::err_attribute_zero_size)
-        << "matrix" << RowRange << ColRange;
-    return QualType();
+
+  unsigned MaxElements = 0;
+  if (getLangOpts().HLSL)
+    MaxElements = ConstantMatrixType::MaxHLSLElementsPerDimension;
+  else
+    MaxElements = ConstantMatrixType::MaxElementsPerDimension;
+
+  if (MatrixRows < 1 || MatrixRows > MaxElements) {
+    Diag(RowExpr->getBeginLoc(), diag::err_builtin_matrix_invalid_dimension)
+        << "row" << MaxElements;
+    return false;
   }
-  if (MatrixRows == 0) {
-    Diag(AttrLoc, diag::err_attribute_zero_size) << "matrix" << RowRange;
-    return QualType();
+
+  if (MatrixColumns < 1 || MatrixColumns > MaxElements) {
+    Diag(ColExpr->getBeginLoc(), diag::err_builtin_matrix_invalid_dimension)
+        << "column" << MaxElements;
+    return false;
   }
-  if (MatrixColumns == 0) {
-    Diag(AttrLoc, diag::err_attribute_zero_size) << "matrix" << ColRange;
-    return QualType();
-  }
-  if (!ConstantMatrixType::isDimensionValid(MatrixRows)) {
-    Diag(AttrLoc, diag::err_attribute_size_too_large)
-        << RowRange << "matrix row";
-    return QualType();
-  }
-  if (!ConstantMatrixType::isDimensionValid(MatrixColumns)) {
-    Diag(AttrLoc, diag::err_attribute_size_too_large)
-        << ColRange << "matrix column";
-    return QualType();
-  }
-  return Context.getConstantMatrixType(ElementTy, MatrixRows, MatrixColumns);
+
+  Rows = MatrixRows;
+  Cols = MatrixColumns;
+
+  return true;
 }
 
 bool Sema::CheckFunctionReturnType(QualType T, SourceLocation Loc) {

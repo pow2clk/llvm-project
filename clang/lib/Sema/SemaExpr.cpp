@@ -12979,8 +12979,11 @@ QualType Sema::CheckMatrixMultiplyOperands(ExprResult &LHS, ExprResult &RHS,
   if (RHS.isInvalid())
     return QualType();
 
-  auto *LHSMatType = LHS.get()->getType()->getAs<ConstantMatrixType>();
-  auto *RHSMatType = RHS.get()->getType()->getAs<ConstantMatrixType>();
+  const ConstantMatrixType *LHSMatType = nullptr;
+  const ConstantMatrixType *RHSMatType = nullptr;
+  LHSMatType = LHS.get()->getType()->getAs<ConstantMatrixType>();
+  RHSMatType = RHS.get()->getType()->getAs<ConstantMatrixType>();
+
   assert((LHSMatType || RHSMatType) && "At least one operand must be a matrix");
 
   if (LHSMatType && RHSMatType) {

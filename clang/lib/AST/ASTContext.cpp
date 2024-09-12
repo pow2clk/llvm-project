@@ -4599,16 +4599,11 @@ ASTContext::getDependentSizedExtVectorType(QualType vecType,
 }
 
 QualType ASTContext::getConstantMatrixType(QualType ElementTy, unsigned NumRows,
-                                           unsigned NumColumns) const {
+				      unsigned NumColumns) const {
   llvm::FoldingSetNodeID ID;
   ConstantMatrixType::Profile(ID, ElementTy, NumRows, NumColumns,
                               Type::ConstantMatrix);
 
-  assert(MatrixType::isValidElementType(ElementTy) &&
-         "need a valid element type");
-  assert(ConstantMatrixType::isDimensionValid(NumRows) &&
-         ConstantMatrixType::isDimensionValid(NumColumns) &&
-         "need valid matrix dimensions");
   void *InsertPos = nullptr;
   if (ConstantMatrixType *MTP = MatrixTypes.FindNodeOrInsertPos(ID, InsertPos))
     return QualType(MTP, 0);
@@ -4617,7 +4612,6 @@ QualType ASTContext::getConstantMatrixType(QualType ElementTy, unsigned NumRows,
   if (!ElementTy.isCanonical()) {
     Canonical =
         getConstantMatrixType(getCanonicalType(ElementTy), NumRows, NumColumns);
-
     ConstantMatrixType *NewIP = MatrixTypes.FindNodeOrInsertPos(ID, InsertPos);
     assert(!NewIP && "Matrix type shouldn't already exist in the map");
     (void)NewIP;
@@ -4650,6 +4644,7 @@ QualType ASTContext::getDependentSizedMatrixType(QualType ElementTy,
 #ifndef NDEBUG
     DependentSizedMatrixType *CanonCheck =
         DependentSizedMatrixTypes.FindNodeOrInsertPos(ID, InsertPos);
+    // how could this ever be in the cache? It was just checked with the samsamismo ID above!!!
     assert(!CanonCheck && "Dependent-sized matrix canonical type broken");
 #endif
     DependentSizedMatrixTypes.InsertNode(Canon, InsertPos);
@@ -4667,6 +4662,7 @@ QualType ASTContext::getDependentSizedMatrixType(QualType ElementTy,
   DependentSizedMatrixType *New = new (*this, alignof(DependentSizedMatrixType))
       DependentSizedMatrixType(ElementTy, QualType(Canon, 0), RowExpr,
                                ColumnExpr, AttrLoc);
+  // No pushing onto the dendendtsizedmatrixtypes cache
   Types.push_back(New);
   return QualType(New, 0);
 }

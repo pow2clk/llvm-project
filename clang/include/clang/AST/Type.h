@@ -4208,16 +4208,6 @@ public:
   /// Returns type of the elements being stored in the matrix
   QualType getElementType() const { return ElementType; }
 
-  /// Valid elements types are the following:
-  /// * an integer type (as in C23 6.2.5p22), but excluding enumerated types
-  ///   and _Bool
-  /// * the standard floating types float or double
-  /// * a half-precision floating point type, if one is supported on the target
-  static bool isValidElementType(QualType T) {
-    return T->isDependentType() ||
-           (T->isRealType() && !T->isBooleanType() && !T->isEnumeralType());
-  }
-
   bool isSugared() const { return false; }
   QualType desugar() const { return QualType(this, 0); }
 
@@ -4236,8 +4226,6 @@ protected:
   unsigned NumRows;
   unsigned NumColumns;
 
-  static constexpr unsigned MaxElementsPerDimension = (1 << 20) - 1;
-
   ConstantMatrixType(QualType MatrixElementType, unsigned NRows,
                      unsigned NColumns, QualType CanonElementType);
 
@@ -4245,6 +4233,9 @@ protected:
                      unsigned NColumns, QualType CanonElementType);
 
 public:
+  static constexpr unsigned MaxElementsPerDimension = (1 << 20) - 1;
+  static constexpr unsigned MaxHLSLElementsPerDimension = 4;
+
   /// Returns the number of rows in the matrix.
   unsigned getNumRows() const { return NumRows; }
 
@@ -4254,16 +4245,6 @@ public:
   /// Returns the number of elements required to embed the matrix into a vector.
   unsigned getNumElementsFlattened() const {
     return getNumRows() * getNumColumns();
-  }
-
-  /// Returns true if \p NumElements is a valid matrix dimension.
-  static constexpr bool isDimensionValid(size_t NumElements) {
-    return NumElements > 0 && NumElements <= MaxElementsPerDimension;
-  }
-
-  /// Returns the maximum number of elements per dimension.
-  static constexpr unsigned getMaxElementsPerDimension() {
-    return MaxElementsPerDimension;
   }
 
   void Profile(llvm::FoldingSetNodeID &ID) {

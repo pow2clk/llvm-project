@@ -1974,7 +1974,8 @@ bool Sema::CheckTSBuiltinFunctionCall(const TargetInfo &TI, unsigned BuiltinID,
 static bool checkMathBuiltinElementType(Sema &S, SourceLocation Loc,
                                         QualType ArgTy, int ArgIndex) {
   if (!ArgTy->getAs<VectorType>() &&
-      !ConstantMatrixType::isValidElementType(ArgTy)) {
+      !S.isValidMatrixElement(ArgTy)) {
+    // double diag. What is this return type?
     return S.Diag(Loc, diag::err_builtin_invalid_arg_type)
            << ArgIndex << /* vector, integer or float ty*/ 0 << ArgTy;
   }
@@ -14542,7 +14543,7 @@ ExprResult Sema::BuiltinMatrixTranspose(CallExpr *TheCall,
   // Create returned matrix type by swapping rows and columns of the argument
   // matrix type.
   QualType ResultType = Context.getConstantMatrixType(
-      MType->getElementType(), MType->getNumColumns(), MType->getNumRows());
+    MType->getElementType(), MType->getNumColumns(), MType->getNumRows());
 
   // Change the return type to the type of the returned matrix.
   TheCall->setType(ResultType);
@@ -14553,23 +14554,27 @@ ExprResult Sema::BuiltinMatrixTranspose(CallExpr *TheCall,
 }
 
 // Get and verify the matrix dimensions.
-static std::optional<unsigned>
-getAndVerifyMatrixDimension(Expr *Expr, StringRef Name, Sema &S) {
+bool
+getAndVerifyMatrixDimensions(Sema &S, Expr *RowExpr, Expr *ColExpr, unsigned &Rows, unsigned &Columns) {
   SourceLocation ErrorPos;
-  std::optional<llvm::APSInt> Value =
-      Expr->getIntegerConstantExpr(S.Context, &ErrorPos);
-  if (!Value) {
-    S.Diag(Expr->getBeginLoc(), diag::err_builtin_matrix_scalar_unsigned_arg)
-        << Name;
-    return {};
+  std::optional<llvm::APSInt> RowValue =
+      RowExpr->getIntegerConstantExpr(S.Context, &ErrorPos);
+  std::optional<llvm::APSInt> ColValue =
+      ColExpr->getIntegerConstantExpr(S.Context, &ErrorPos);
+  if (!RowValue) {
+    S.Diag(ColExpr->getBeginLoc(), diag::err_builtin_matrix_scalar_unsigned_arg)
+        << "row";
+    return false;
   }
-  uint64_t Dim = Value->getZExtValue();
-  if (!ConstantMatrixType::isDimensionValid(Dim)) {
-    S.Diag(Expr->getBeginLoc(), diag::err_builtin_matrix_invalid_dimension)
-        << Name << ConstantMatrixType::getMaxElementsPerDimension();
-    return {};
+  if (!ColValue) {
+    S.Diag(ColExpr->getBeginLoc(), diag::err_builtin_matrix_scalar_unsigned_arg)
+        << "column";
+    return false;
   }
-  return Dim;
+
+  S.areValidMatrixDimensions(RowExpr, ColExpr, Rows, Columns);
+
+  return true;
 }
 
 ExprResult Sema::BuiltinMatrixColumnMajorLoad(CallExpr *TheCall,
@@ -14612,7 +14617,8 @@ ExprResult Sema::BuiltinMatrixColumnMajorLoad(CallExpr *TheCall,
   } else {
     ElementTy = PtrTy->getPointeeType().getUnqualifiedType();
 
-    if (!ConstantMatrixType::isValidElementType(ElementTy)) {
+    if (!isValidMatrixElement(ElementTy)) {
+      // double diags
       Diag(PtrExpr->getBeginLoc(), diag::err_builtin_invalid_arg_type)
           << PtrArgIdx + 1 << /* pointer to element ty*/ 2
           << PtrExpr->getType();
@@ -14653,13 +14659,8 @@ ExprResult Sema::BuiltinMatrixColumnMajorLoad(CallExpr *TheCall,
   }
 
   // Check row and column dimensions.
-  std::optional<unsigned> MaybeRows;
-  if (RowsExpr)
-    MaybeRows = getAndVerifyMatrixDimension(RowsExpr, "row", *this);
-
-  std::optional<unsigned> MaybeColumns;
-  if (ColumnsExpr)
-    MaybeColumns = getAndVerifyMatrixDimension(ColumnsExpr, "column", *this);
+  unsigned MaybeRows = 0, MaybeColumns = 0;
+  getAndVerifyMatrixDimensions(*this, RowsExpr, ColumnsExpr, MaybeRows, MaybeColumns);
 
   // Check stride argument.
   ExprResult StrideConv = ApplyArgumentConversions(StrideExpr);
@@ -14672,7 +14673,7 @@ ExprResult Sema::BuiltinMatrixColumnMajorLoad(CallExpr *TheCall,
     if (std::optional<llvm::APSInt> Value =
             StrideExpr->getIntegerConstantExpr(Context)) {
       uint64_t Stride = Value->getZExtValue();
-      if (Stride < *MaybeRows) {
+      if (Stride < MaybeRows) {
         Diag(StrideExpr->getBeginLoc(),
              diag::err_builtin_matrix_stride_too_small);
         ArgError = true;
@@ -14684,7 +14685,7 @@ ExprResult Sema::BuiltinMatrixColumnMajorLoad(CallExpr *TheCall,
     return ExprError();
 
   TheCall->setType(
-      Context.getConstantMatrixType(ElementTy, *MaybeRows, *MaybeColumns));
+    Context.getConstantMatrixType(ElementTy, MaybeRows, MaybeColumns));
   return CallResult;
 }
 
