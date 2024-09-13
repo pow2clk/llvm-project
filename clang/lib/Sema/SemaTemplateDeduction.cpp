@@ -2276,7 +2276,7 @@ static TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
         return TemplateDeductionResult::NonDeducedMismatch;
       }
       // Perform deduction on element types.
-      return DeduceTemplateArgumentsByTypeMatch(
+      return DeduceTemplateArgumentsByTypeMatch( // May need to change this for HLSL
           S, TemplateParams, MP->getElementType(), MA->getElementType(), Info,
           Deduced, TDF, degradeCallPartialOrderingKind(POK),
           /*DeducedFromArrayBound=*/false, HasDeducedAnyParam);

@@ -11491,7 +11491,7 @@ QualType ASTContext::mergeTypes(QualType LHS, QualType RHS, bool OfBlockPointer,
       return LHS;
     return {};
   case Type::ConstantMatrix:
-    if (areCompatMatrixTypes(LHSCan->castAs<ConstantMatrixType>(),
+    if (areCompatMatrixTypes(LHSCan->castAs<ConstantMatrixType>(),// HLSL needs its own version of this check
                              RHSCan->castAs<ConstantMatrixType>()))
       return LHS;
     return {};
@@ -13564,6 +13564,7 @@ static QualType getCommonNonSugarTypeNode(ASTContext &Ctx, const Type *X,
                *MY = cast<ConstantMatrixType>(Y);
     assert(MX->getNumRows() == MY->getNumRows());
     assert(MX->getNumColumns() == MY->getNumColumns());
+    // HLSL matrices will need a change to getCommonElementType
     return Ctx.getConstantMatrixType(getCommonElementType(Ctx, MX, MY),
                                      MX->getNumRows(), MX->getNumColumns());
   }
